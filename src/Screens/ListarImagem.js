@@ -1,135 +1,127 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Image, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { supabase } from '../Config/supabaseConfig';
+import React, { useState, useEffect } from "react";
+import {
+  StyleSheet,
+  View,
+  ScrollView,
+  Text,
+  Image,
+  ActivityIndicator,
+  TouchableOpacity
+} from "react-native";
+import { supabase } from "../Config/supabaseConfig";
 
-export default function ListarImagem({ navigation }) { // Adicione navigation aqui
-    const [imagens, setImagens] = useState([]);
-    const [carregando, setCarregando] = useState(true);
+const BUCKET_NAME = "fotos-user";
 
-    const listarImagensPerfil = async () => {
+export default function ListarImagens({navigation}) {
+  const [images, setImages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchImages = async () => {
+      setLoading(true);
+
+      try {
         const { data, error } = await supabase
+          .storage
+          .from(BUCKET_NAME)
+          .list("", { limit: 100 });
+
+        if (error) throw error;
+
+        const imageFiles = data.filter(file =>
+          file.name.match(/\.(jpg|jpeg|png)$/i)
+        );
+
+        const imageURLs = imageFiles.map(file => ({
+          name: file.name,
+          url: supabase
             .storage
-            .from('fotos-user')
-            .list('', { limit: 100 });
+            .from(BUCKET_NAME)
+            .getPublicUrl(file.name).data.publicUrl,
+        }));
 
-        if (error) {
-            console.error('Erro ao listar imagens:', error);
-            return;
-        }
-
-        const urls = data
-            .filter((arquivo) => arquivo.name)
-            .map((arquivo) => {
-                const caminho = arquivo.id || arquivo.path || arquivo.name;
-                const { publicURL } = supabase
-                    .storage
-                    .from('fotos-user')
-                    .getPublicUrl(caminho);
-
-                return {
-                    nome: arquivo.name,
-                    url: publicURL,
-                };
-            });
-
-        console.log(urls);
-
-        setImagens(urls);
-        setCarregando(false);
+        setImages(imageURLs);
+      } catch (error) {
+        console.error("Erro ao listar imagens:", error);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    useEffect(() => {
-        listarImagensPerfil();
-    }, []);
+    fetchImages();
+  }, []);
 
-    if (carregando) {
-        return (
-            <View style={styles.container}>
-                <ActivityIndicator size="large" color="#3B82F6" />
-                <Text style={styles.loading}>Carregando imagens...</Text>
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Imagens</Text>
+
+      <TouchableOpacity
+        style={styles.botaoAdicionar}
+        onPress={() => navigation.navigate('Upload Imagem')}
+      >
+        <Text style={styles.textoBotaoAdicionar}>+ Adicionar nova foto</Text>
+      </TouchableOpacity>
+
+      {loading ? (
+        <ActivityIndicator size="large" color="#fff" />
+      ) : (
+        <ScrollView contentContainerStyle={styles.imageList}>
+          {images.map((img) => (
+            <View key={img.url} style={styles.imageContainer}>
+              <Image
+                source={{ uri: img.url }}
+                style={styles.image}
+                resizeMode="contain"
+              />
+              <Text style={styles.imageName}>{img.name}</Text>
             </View>
-        );
-    }
-
-    return (
-        <View style={styles.container}>
-            <Text style={styles.titulo}>Fotos</Text>
-            <TouchableOpacity
-                style={styles.botaoAdicionar}
-                onPress={() => navigation.navigate('Upload Imagem')}
-            >
-                <Text style={styles.textoBotaoAdicionar}>+ Adicionar nova foto</Text>
-            </TouchableOpacity>
-            <FlatList
-                data={imagens}
-                keyExtractor={(item) => item.nome}
-                numColumns={2}
-                renderItem={({ item }) => (
-                    <View style={styles.card}>
-                        <Image source={{ uri: item.url }} style={styles.imagem} />
-                        <Text style={styles.nome}>{item.nome}</Text>
-                    </View>
-                )}
-            />
-        </View>
-    );
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#1C3A63',
-        paddingHorizontal: 30,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    titulo: {
-        fontSize: 24,
-        color: '#F5F7FA',
-        fontWeight: 'bold',
-        marginBottom: 10,
-        marginTop: 10,
-    },
-    botaoAdicionar: {
-        backgroundColor: '#0077FF',
-        paddingVertical: 12,
-        paddingHorizontal: 24,
-        borderRadius: 10,
-        alignItems: 'center',
-        marginBottom: 16,
-        shadowColor: '#00E0FF',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.4,
-        shadowRadius: 6,
-        elevation: 4,
-    },
-    textoBotaoAdicionar: {
-        color: '#F5F7FA',
-        fontSize: 16,
-        fontWeight: 'bold',
-        letterSpacing: 1,
-    },
-    card: {
-        flex: 1,
-        backgroundColor: '#1A2639',
-        margin: 8,
-        borderRadius: 16,
-        overflow: 'hidden',
-        alignItems: 'center',
-        padding: 10,
-    },
-    imagem: {
-        width: 140,
-        height: 140,
-        borderRadius: 12,
-    },
-    nome: {
-        marginTop: 8,
-        color: '#A9BCD0',
-        fontSize: 14,
-    },
-    loading: {
-        color: '#F5F7FA',
-        marginTop: 10,
-    },
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: "#17408B",
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 10,
+    color: "#fff",
+  },
+  imageList: {
+    paddingBottom: 100,
+  },
+  imageContainer: {
+    marginBottom: 24,
+    borderRadius: 18,
+    backgroundColor: 'rgba(20,30,60,0.85)',
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#000',
+  },
+  imageName: {
+    fontSize: 14,
+    marginBottom: 3,
+    marginTop: 8,
+    color: "#fff",
+  },
+  image: {
+    width: "100%",
+    height: 200,
+    borderRadius: 8,
+    backgroundColor: "#eee",
+  }
 });
