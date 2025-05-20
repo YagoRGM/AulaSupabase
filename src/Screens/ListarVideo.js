@@ -1,210 +1,140 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Dimensions, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { ScrollView, View, Dimensions, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { supabase } from '../Config/supabaseConfig';
-import { Video } from 'expo-av'
+import { Video } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { Picker } from '@react-native-picker/picker';
 
-const bucketName = 'videos-user'
+const bucketName = 'videos-user';
 
 export default function ListarVideos({ navigation }) {
+    const [videos, setVideos] = useState([]);
+    const [loading, setLoading] = useState(false);
 
-    // LISTAR VIDEO
-    const [categorys, setCategorys] = useState('');
-    const [categories, setCategories] = useState([])
-    const [videos, setVideos] = useState([])
-    const [loading, setLoading] = useState(false)
-    const [loadingCategories, setLoadingCategories] = useState(true)
-
-    // UPLOAD DE VIDEO
-    const [video, setvideo] = useState(null)
-    const [category, setCategory] = useState('matematica')
-    const [uploading, setUploading] = useState(false)
+    const [video, setVideo] = useState(null);
+    const [category, setCategory] = useState();
+    const [uploading, setUploading] = useState(false);
     const [VideoUri, setVideoUri] = useState(null);
 
-    // LISTAR VIDEOS
-    const fetchCategories = async () => {
-        setLoadingCategories(true)
-        try {
-            const { data, error } = await supabase.storage
-                .from(bucketName)
-                .list("", {
-                    limit: 100,
-                    offset: 0,
-                    sortBy: { column: "name", order: "asc" },
-                })
-            if (error) {
-                console.error('Erro ao buscar categorias', error)
-                throw error
-            }
-            console.log('Dados das categorias:', data)
+    useEffect(() => {
+        const fetchVideos = async () => {
+            setLoading(true);
+            try {
+                const { data, error } = await supabase.storage
+                    .from(bucketName)
+                    .list("", { limit: 100 });
 
-            const categoriesList = data.map((file) => file.name)
-            setCategories(categoriesList)
-            console.log('Categorias extraidas', categoriesList)
+                if (error) {
+                    console.log('Erro ao buscar vídeos', error);
+                    throw error;
+                }
 
-            if (categoriesList.length > 0) {
-                setCategorys(categoriesList[0])
-            }
-        }
-        catch (error) {
-            console.log('Erro ao carregar categorias', error)
-        }
-        finally {
-            setLoadingCategories(false)
-        }
-    }
+                // Filtra vídeos com extensão .mp4 ou .webm (case insensitive)
+                const videoFiles = data.filter((file) =>
+                    file.name.match(/\.(mp4|webm)$/i)
+                );
 
-
-
-    // LISTAR VIDEOS
-    const fetchVideos = async () => {
-        if (!categorys) return
-
-        setLoading(true);
-        const prefix = `${categorys}/`
-
-        try {
-            const { data, error } = await supabase.storage
-                .from(bucketName)
-                .list(prefix, {
-                    limit: 100,
-                    offset: 0,
-                    sortBy: { column: 'name', order: 'asc' },
-                })
-
-            if (error) {
-                console.log('Erro ao buscar videos', error)
-                throw error
-            }
-
-            console.log('Dados dos videos', data)
-
-            const videoFiles = data?.filter((file) =>
-                file.name.endsWith('.mp4')
-            )
-
-            if (videoFiles?.length > 0) {
-                const videoUrls = videoFiles.map((file) => {
-                    const fullPath = `${prefix}${file.name}`;
-                    const { data } = supabase.storage.from(bucketName).getPublicUrl(fullPath);
-                    const publicUrl = data?.publicUrl || "";
-                    console.log("URL pública gerada:", publicUrl);
-                    return {
-                        key: file.name,
-                        name: file.name,
-                        url: publicUrl,
-                    };
-                });
+                // Mapeia para nome + url pública
+                const videoUrls = videoFiles.map(file => ({
+                    name: file.name,
+                    url: supabase
+                        .storage
+                        .from(bucketName)
+                        .getPublicUrl(file.name).data.publicUrl,
+                }));
 
                 setVideos(videoUrls);
-            } else {
-                setVideos([]); // Caso não haja vídeos
+            } catch (error) {
+                console.error("Erro ao carregar vídeos: ", error);
+            } finally {
+                setLoading(false);
             }
-        } catch (error) {
-            console.error("Erro ao carregar vídeos: ", error);
-        } finally {
-            setLoading(false);
-        }
+        };
 
-    }
-
-    useEffect(() => {
-        fetchCategories();
+        fetchVideos();
     }, []);
 
-    useEffect(() => {
-        if (categorys) {
-            fetchVideos();
-        }
-    }, [categorys]);
-
-
-
-    // UPLOAD DE VIDEOS
     const pickVideo = async () => {
         try {
             const result = await DocumentPicker.getDocumentAsync({
                 type: "video/*",
-                copyToCacheDirectory: true
+                copyToCacheDirectory: true,
+                multiple: false,  // só um vídeo
             });
 
-            if (result?.type === 'success') {
+            console.log('Resultado do DocumentPicker:', result);
+
+            if (!result.canceled && result.assets && result.assets.length > 0) {
+                const asset = result.assets[0];
+                if (!asset.uri) {
+                    alert('Vídeo selecionado inválido, tente novamente');
+                    return;
+                }
+
                 const selectedVideo = {
-                    uri: result.uri,
-                    name: result.name || 'video.mp4',
-                    type: result.mimeType || 'video/mp4',
+                    uri: asset.uri,
+                    name: asset.name || 'video.mp4',
+                    type: asset.mimeType || 'video/mp4',
                 };
-                setvideo(selectedVideo);
-                setVideoUri(result.uri);
+                setVideo(selectedVideo);
+                setVideoUri(asset.uri);
+            } else if (result.canceled) {
+                alert('Seleção cancelada');
             } else {
-                console.log('Seleção cancelada ou inválida');
-                alert('Seleção cancelada ou inválida');
+                alert('Seleção inválida');
             }
         } catch (error) {
-            console.log('Erro ao selecionar vídeo:', error);
             alert('Erro ao selecionar vídeo');
+            console.log(error);
         }
     };
 
 
 
 
-    // UPLOAD DE VIDEOS
     const uploadVideo = async () => {
-        if (!video || !category) {
-            alert('Erro, selecione uma categoria')
-            return
-        }
         try {
             setUploading(true);
 
-            const timestamp = new Date().getTime();
-            const filePath = `${category}/${timestamp}_${video.name}`
-            const uploadUrl = `https://rdwcrvajzknnsoevigwp.supabase.co/storage/v1/object/videos-user/${filePath}`
+            const filePath = `${video.name}`;
+            const uploadUrl = `https://rdwcrvajzknnsoevigwp.supabase.co/storage/v1/object/videos-user/${filePath}`;
 
-            const { data: sessionData, error: sessionError } =
-                await supabase.auth.getSession();
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
             if (sessionError) throw sessionError;
 
-            const token = sessionData.session?.access_token
-            if (!token) throw new Error('Token de acesso não encontrado')
+            const token = sessionData.session?.access_token;
+            if (!token) throw new Error('Token de acesso não encontrado');
 
             const result = await FileSystem.uploadAsync(uploadUrl, video.uri, {
                 httpMethod: 'PUT',
                 headers: {
                     'Content-Type': video.type || 'video/mp4',
-                    Authorization: `Bearer ${token}`
+                    Authorization: `Bearer ${token}`,
                 },
                 uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-            })
+            });
 
-            if (result.status != 200) {
-                alert('Erro, Falha ao enviar o video')
-            }
-            else {
-                setvideo(null)
-                navigation.goback()
+            if (result.status !== 200) {
+                alert('Erro, Falha ao enviar o vídeo');
+            } else {
+                setVideo(null);
+                navigation.goBack();
             }
         } catch (error) {
-            console.log('Erro no uploadVideo:', error);
             alert(`Erro inesperado: ${error.message}`);
+            console.log(error);
         } finally {
-            setUploading(false)
+            setUploading(false);
         }
-    }
-
-
+    };
 
     const verificar = async () => {
         if (VideoUri) {
             await uploadVideo();
+        } else {
+            alert('Nenhum vídeo selecionado');
         }
-        else {
-            alert('Nenhum video selecionado')
-        }
-    }
+    };
 
 
     const { width } = Dimensions.get('window');
@@ -213,7 +143,25 @@ export default function ListarVideos({ navigation }) {
 
     return (
         <View style={styles.container}>
-            <Text style={styles.titulo}>Videos</Text>
+            <Text style={styles.titulo}>Vídeos</Text>
+
+            {loading ? (
+                <ActivityIndicator size="large" color="#0077FF" />
+            ) : (
+                <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingVertical: 10 }}>
+                    {videos.map((video) => (
+                        <View key={video.name} style={styles.videoContainer}>
+                            <Text style={styles.videoTitle}>{video.name}</Text>
+                            <Video
+                                source={{ uri: video.url }}
+                                style={{ width: videoWidth, height: videoHeight }}
+                                useNativeControls
+                                resizeMode="contain"
+                            />
+                        </View>
+                    ))}
+                </ScrollView>
+            )}
 
             <TouchableOpacity style={styles.botaoAdicionar} onPress={pickVideo}>
                 <Text style={styles.textoBotaoAdicionar}>Adicionar novo vídeo</Text>
@@ -224,58 +172,18 @@ export default function ListarVideos({ navigation }) {
                     <Text style={{ color: '#fff', marginBottom: 8 }}>Vídeo selecionado:</Text>
                     <Video
                         source={{ uri: VideoUri }}
-                        style={{
-                            width: videoWidth,
-                            height: videoHeight,
-                            borderRadius: 8,
-                            backgroundColor: '#000'
-                        }}
+                        style={{ width: videoWidth, height: videoHeight }}
                         resizeMode="contain"
                         useNativeControls
                     />
                 </View>
             )}
 
-            <TouchableOpacity onPress={verificar} style={styles.botao_enviar_video}>
-                <Text style={styles.botaoText_enviarVideo}>Enviar vídeo</Text>
+            <TouchableOpacity onPress={verificar} style={styles.botao_enviar_video} disabled={uploading}>
+                <Text style={styles.botaoText_enviarVideo}>
+                    {uploading ? 'Enviando...' : 'Enviar vídeo'}
+                </Text>
             </TouchableOpacity>
-
-            <Text style={styles.titulo}>Selecione um Video</Text>
-            {loadingCategories ? (
-                <ActivityIndicator size="large" color="#0077FF" />
-            ) : (
-                <Picker
-                    selectedValue={category}
-                    onValueChange={(itemValue) => {
-                        setCategory(itemValue);
-                        setCategorys(itemValue); // <-- isso sincroniza as duas variáveis
-                    }}
-                    style={styles.picker}
-                >
-                    {categories.map((cat) => (
-                        <Picker.Item key={cat} label={cat} value={cat} />
-                    ))}
-                </Picker>
-            )}
-
-            {loading ? (
-                <ActivityIndicator size="large" color="#0077FF" />
-            ) : (
-                <ScrollView style={styles.scrollView}>
-                    {videos.map((video) => (
-                        <View key={video.key} style={styles.videoContainer}>
-                            <Text style={styles.videoTitle}>{video.name}</Text>
-                            <Video
-                                source={{ uri: video.url }}
-                                style={styles.video}
-                                useNativeControls
-                                resizeMode="contain"
-                                isLooping
-                            />
-                        </View>
-                    ))}
-                </ScrollView>
-            )}
         </View>
     );
 }
@@ -295,18 +203,32 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         marginTop: 10,
     },
+    scrollView: {
+        width: '100%',
+        marginBottom: 10,
+    },
+    videoContainer: {
+        marginBottom: 20,
+        width: '100%',
+        alignItems: 'center',
+    },
+    videoTitle: {
+        color: '#FFF',
+        marginBottom: 8,
+        fontWeight: 'bold',
+    },
     botaoAdicionar: {
         backgroundColor: '#0077FF',
         paddingVertical: 12,
         paddingHorizontal: 24,
         borderRadius: 10,
         alignItems: 'center',
-        marginBottom: 16,
         shadowColor: '#00E0FF',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.4,
         shadowRadius: 6,
         elevation: 4,
+        marginTop: 10,
     },
     textoBotaoAdicionar: {
         color: '#F5F7FA',
@@ -314,38 +236,13 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         letterSpacing: 1,
     },
-    card: {
-        flex: 1,
-        backgroundColor: '#1A2639',
-        margin: 8,
-        borderRadius: 16,
-        overflow: 'hidden',
-        alignItems: 'center',
-        padding: 10,
-    },
-    imagem: {
-        width: 140,
-        height: 140,
-        borderRadius: 12,
-    },
-    nome: {
-        marginTop: 8,
-        color: '#A9BCD0',
-        fontSize: 14,
-    },
-    loading: {
-        color: '#F5F7FA',
-        marginTop: 10,
-    },
-
     botao_enviar_video: {
-        margin: 30,
+        marginTop: 20,
         backgroundColor: 'rgba(0, 119, 255, 0.53)',
         paddingVertical: 12,
         paddingHorizontal: 24,
         borderRadius: 10,
         alignItems: 'center',
-        marginBottom: 16,
         shadowColor: '#00E0FF',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.4,
@@ -357,5 +254,5 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
         letterSpacing: 1,
-    }
+    },
 });
